@@ -1,0 +1,16 @@
+# Neovim / Swap files
+*.swp
+*.swo
+undo/
+.netrwhist
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Go binary (if you keep the source in the same folder)
+gotes
+*.exe
+*.bin
+
+config.json
