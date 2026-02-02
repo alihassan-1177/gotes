@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -15,23 +16,21 @@ import (
 type Config struct {
 	GithubRepoUrl  string `json:"github_repo_url"`
 	NotesDirectory string `json:"notes_directory"`
+	BranchName string `json:"branch_name"`
 }
 
 func main() {
-	// 1. Load Configuration
-	config, err := loadConfig("config.json")
+	config, err := loadConfig("gotes-config.json")
 	if err != nil {
 		fmt.Printf("Configuration Error: %v\n", err)
 		return
 	}
 
-	// 2. Ensure Notes Directory exists
 	if _, err := os.Stat(config.NotesDirectory); os.IsNotExist(err) {
 		fmt.Printf("Creating directory: %s\n", config.NotesDirectory)
 		os.MkdirAll(config.NotesDirectory, 0755)
 	}
 
-	// 3. Open or Initialize Repository
 	r, err := git.PlainOpen(config.NotesDirectory)
 	if err != nil {
 		if err == git.ErrRepositoryNotExists {
@@ -48,29 +47,35 @@ func main() {
 		}
 	}
 
-	// 4. Ensure we are on the Hostname Branch
-	err = ensureCorrectBranch(r)
+	pullLatest(r)
 	if err != nil {
-		fmt.Printf("Branch Error: %v\n", err)
-		return
+		fmt.Printf("Pull Warning: %v (Proceeding anyway...)\n", err)
 	}
-
-	// 5. Commit Changes
+	
 	err = autoCommit(r)
 	if err != nil {
 		fmt.Printf("Commit skipped: %v\n", err)
 	} else {
-		// 6. Push to GitHub
 		err = pushToRemote(r)
 		if err != nil {
 			fmt.Printf("Push Failed: %v\n", err)
 		}
 	}
+
+	err = ensureCorrectBranch(r, config.BranchName)
+	if err != nil {
+		fmt.Printf("Branch Error: %v\n", err)
+		return
+	}
+
 }
 
 func loadConfig(path string) (Config, error) {
 	var config Config
-	file, err := os.ReadFile(path)
+	home, _ := os.UserHomeDir()
+	var full_path = filepath.Join(home, path)
+	
+	file, err := os.ReadFile(full_path)
 	if err != nil {
 		return config, err
 	}
@@ -79,7 +84,8 @@ func loadConfig(path string) (Config, error) {
 }
 
 func setupRemote(r *git.Repository, url string) {
-	_, err := r.CreateRemote(&git.Config{
+
+	_, err := r.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
 		URLs: []string{url},
 	})
@@ -88,10 +94,10 @@ func setupRemote(r *git.Repository, url string) {
 	}
 }
 
-func ensureCorrectBranch(r *git.Repository) error {
-	hostname, _ := os.Hostname()
+func ensureCorrectBranch(r *git.Repository, hostname string) error {
 	branchName := plumbing.NewBranchReferenceName(hostname)
 	w, err := r.Worktree()
+
 	if err != nil {
 		return err
 	}
@@ -131,12 +137,14 @@ func autoCommit(r *git.Repository) error {
 	hostname, _ := os.Hostname()
 	msg := fmt.Sprintf("Sync: %s [%s]", hostname, time.Now().Format(time.DateTime))
 
-	_, err = w.Commit(msg, &object.Signature{
-		Name:  "Gotes Sync",
-		Email: "sync@gotes.local",
-		When:  time.Now(),
+	_, err = w.Commit(msg, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Gotes Sync",
+			Email: "sync@gotes.local",
+			When:  time.Now(),
+		},
 	})
-	
+
 	if err == nil {
 		fmt.Println("Changes committed locally.")
 	}
@@ -145,10 +153,11 @@ func autoCommit(r *git.Repository) error {
 
 func pushToRemote(r *git.Repository) error {
 	fmt.Println("Syncing to GitHub...")
-	
+
 	err := r.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Progress:   os.Stdout,
+		Force: true,
 	})
 
 	if err == git.NoErrAlreadyUpToDate {
@@ -160,4 +169,27 @@ func pushToRemote(r *git.Repository) error {
 		fmt.Println("Push successful!")
 	}
 	return err
+}
+
+func pullLatest(r *git.Repository) error {
+	w, err := r.Worktree()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Pulling latest changes from remote...")
+	err = w.Pull(&git.PullOptions{
+		RemoteName: "origin",
+	})
+
+	if err == git.NoErrAlreadyUpToDate {
+		fmt.Println("Local is already up to date with remote.")
+		return nil
+	}
+
+	if err != nil && err.Error() != "remote repository is empty" {
+		return err
+	}
+
+	return nil
 }
