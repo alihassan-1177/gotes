@@ -3,10 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
-	"log"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -17,36 +17,36 @@ import (
 type Config struct {
 	GithubRepoUrl  string `json:"github_repo_url"`
 	NotesDirectory string `json:"notes_directory"`
-	BranchName string `json:"branch_name"`
+	BranchName     string `json:"branch_name"`
 }
 
-func watchFileChanges(config Config){
+func watchFileChanges(config Config) {
 	var filename = config.NotesDirectory
 	fmt.Println("Looking for changes")
 	initialStat, err := os.Stat(filename)
+	
 	if err != nil {
 		log.Fatal(err)
 	}
-	
-	time.Sleep(1 * time.Second)
 
-	currentStat, err := os.Stat(filename)
-	if err != nil {
-		log.Fatal(err)
-	}
-	
-	if initialStat.ModTime() != currentStat.ModTime() {
-		fmt.Println("Pushing notes on github")
-		pushNotesOnGit(config)	
-		fmt.Println("Push complete")
-		initialStat = currentStat
-		watchFileChanges(config)
-	}else{
-		watchFileChanges(config)
+	for {
+		time.Sleep(5 * time.Second)
+
+		currentStat, err := os.Stat(filename)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if currentStat.ModTime().After(initialStat.ModTime()) {
+			fmt.Println("Pushing notes on github")
+			pushNotesOnGit(config)
+			fmt.Println("Push complete")
+			initialStat = currentStat
+		}
 	}
 }
 
-func main () {
+func main() {
 	fmt.Println("Gotes started")
 	config, err := loadConfig("gotes-config.json")
 	if err != nil {
@@ -81,7 +81,7 @@ func pushNotesOnGit(config Config) {
 	if err != nil {
 		fmt.Printf("Pull Warning: %v (Proceeding anyway...)\n", err)
 	}
-	
+
 	err = autoCommit(r)
 	if err != nil {
 		fmt.Printf("Commit skipped: %v\n", err)
@@ -104,7 +104,7 @@ func loadConfig(path string) (Config, error) {
 	var config Config
 	home, _ := os.UserHomeDir()
 	var full_path = filepath.Join(home, path)
-	
+
 	file, err := os.ReadFile(full_path)
 	if err != nil {
 		return config, err
@@ -114,7 +114,6 @@ func loadConfig(path string) (Config, error) {
 }
 
 func setupRemote(r *git.Repository, url string) {
-
 	_, err := r.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
 		URLs: []string{url},
@@ -187,7 +186,7 @@ func pushToRemote(r *git.Repository) error {
 	err := r.Push(&git.PushOptions{
 		RemoteName: "origin",
 		Progress:   os.Stdout,
-		Force: true,
+		Force:      true,
 	})
 
 	if err == git.NoErrAlreadyUpToDate {
