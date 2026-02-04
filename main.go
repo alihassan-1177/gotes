@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"log"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -19,13 +20,42 @@ type Config struct {
 	BranchName string `json:"branch_name"`
 }
 
-func main() {
+func watchFileChanges(config Config){
+	var filename = config.NotesDirectory
+	fmt.Println("Looking for changes")
+	initialStat, err := os.Stat(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	time.Sleep(1 * time.Second)
+
+	currentStat, err := os.Stat(filename)
+	if err != nil {
+		log.Fatal(err)
+	}
+	
+	if initialStat.ModTime() != currentStat.ModTime() {
+		fmt.Println("Pushing notes on github")
+		pushNotesOnGit(config)	
+		fmt.Println("Push complete")
+		initialStat = currentStat
+		watchFileChanges(config)
+	}else{
+		watchFileChanges(config)
+	}
+}
+
+func main () {
+	fmt.Println("Gotes started")
 	config, err := loadConfig("gotes-config.json")
 	if err != nil {
-		fmt.Printf("Configuration Error: %v\n", err)
-		return
+		log.Fatal("Failed to load configuration file")
 	}
+	watchFileChanges(config)
+}
 
+func pushNotesOnGit(config Config) {
 	if _, err := os.Stat(config.NotesDirectory); os.IsNotExist(err) {
 		fmt.Printf("Creating directory: %s\n", config.NotesDirectory)
 		os.MkdirAll(config.NotesDirectory, 0755)
